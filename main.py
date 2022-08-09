@@ -3,11 +3,12 @@ This is the main file for the Tic Tac Toe Game
 """
 from __future__ import annotations
 import csv
-from typing import List, Tuple, Optional, Set
+from typing import List, Tuple, Optional, Set, Union
 import random
 
 row_to_letter = {0: 'A', 1: 'B', 2: 'C'}
 letter_to_row = {'A': 0, 'B': 1, 'C': 2}
+FILENAME = 'data.csv'
 
 
 class TicTacToe:
@@ -21,13 +22,17 @@ class TicTacToe:
         board - board[i][j] denotes the piece being played in the i-th row and j-th column
             Furthermore, in our csv file, we will denote the rows using abc and cols using 123
         curr_player - Denotes the player that is currently in play
+        moves - Moves being played up until this point, stored in a list
+        verbose - Determines if the program will print out the game or not
     """
     board: List[List[str]]
     curr_player: str
     p1: Player
     p2: Player
+    moves: List[str]
+    verbose: bool
 
-    def __init__(self, o_first: bool, player1: Player, player2: Player) -> None:
+    def __init__(self, o_first: bool, player1: Player, player2: Player, verbose: bool) -> None:
         self.board = [['-' for _ in range(3)] for _ in range(3)]
 
         if o_first:
@@ -37,6 +42,10 @@ class TicTacToe:
 
         self.p1 = player1
         self.p2 = player2
+
+        self.verbose = verbose
+
+        self.moves = [self.curr_player]
 
     def check_winner(self) -> str:
         """Returns the winner of the game, if no winner exists at the moment, return 'F'
@@ -85,14 +94,16 @@ class TicTacToe:
         winner = self.check_winner()
 
         if winner != 'F':
-            if winner == 'T':
-                print('It is a tie!')
+            if self.verbose:
+                if winner == 'T':
+                    print('It is a tie!')
 
-            else:
-                print(f'The winner is {winner}!')
+                else:
+                    print(f'The winner is {winner}!')
 
+            self.moves.append(winner)
             self.curr_player = winner
-            self.export_results()
+
             return True
 
         if self.curr_player == 'O':
@@ -101,7 +112,7 @@ class TicTacToe:
             self.board[r][c] = 'O'
 
             # If it is a bot player, we want to advance its game tree
-            for player in (p1, p2):
+            for player in (self.p1, self.p2):
                 if isinstance(player, BotPlayer) and player.tree is not None:
                     player.tree = player.tree.find_subtree(f'{row_to_letter[r]}{c + 1}')
 
@@ -110,10 +121,15 @@ class TicTacToe:
 
             self.board[r][c] = 'X'
 
-            for player in (p1, p2):
+            for player in (self.p1, self.p2):
                 if isinstance(player, BotPlayer) and player.tree is not None:
                     player.tree = player.tree.find_subtree(f'{row_to_letter[r]}{c + 1}')
-        print(self)
+
+        if self.verbose:
+            print(self)
+
+        # Add it to the moves being played in this game
+        self.moves.append(row_to_letter[r] + str(c + 1))
 
         self.curr_player = 'O' if self.curr_player == 'X' else 'X'
 
@@ -133,8 +149,19 @@ class TicTacToe:
 
         return s
 
-    def export_results(self) -> None:
-        """Exports the result of this current game into the CSV File"""
+    def export_results(self, filename: str) -> None:
+        """Reads the CSV File and appends to it, doesn't add duplicate trees"""
+        contents = set()
+        try:
+            with open(filename, 'r') as f:
+                contents = set(f.readlines())
+
+        except FileNotFoundError:
+            pass
+
+        with open(filename, 'w') as f:
+            contents.add(','.join(self.moves) + '\n')
+            f.writelines(set(contents))
 
 
 class Player:
@@ -194,6 +221,16 @@ class Tree:
         self.is_cross_move = is_cross_move
         self.cross_win_probability = cross_win_probability
         self._subtrees = []
+
+    def load_tree(self, tree_path: str) -> None:
+        """Loads the tree from the given path"""
+        with open(tree_path) as f:
+            reader = csv.reader(f)
+
+            for row in reader:
+                self.is_cross_move = row[0] == 'X'
+                self.cross_win_probability = 0.0 if row[-1] == 'O' else 1.0
+                self.insert_move_sequence(row, self.cross_win_probability)
 
     def get_subtrees(self) -> List[Tree]:
         """Returns current subtrees"""
@@ -265,7 +302,7 @@ class Tree:
         else:
             turn_desc = 'Circle move'
 
-        move_desc = f'{self.move} -> {turn_desc} with prob of {self.cross_win_probability}\n'
+        move_desc = f'{self.move} -> {turn_desc} with win prob of {self.cross_win_probability}\n'
 
         s = '\t' * depth + move_desc
 
@@ -280,9 +317,16 @@ class Tree:
 class BotPlayer(Player):
     """The bot player object"""
 
-    def __init__(self, key: str, tree_path: str) -> None:
+    def __init__(self, key: str, tree_path: Union[str, Tree]) -> None:
         super().__init__(key)
-        self.tree = self.load_tree(tree_path)
+        if isinstance(tree_path, str):
+
+            self.tree = self.load_tree(tree_path)
+
+        else:
+            self.tree = tree_path
+
+        self.tree = self.tree.find_subtree(self.key)
 
     def load_tree(self, tree_path: str) -> Tree:
         """Loads the tree from the given path"""
@@ -302,27 +346,11 @@ class BotPlayer(Player):
     def play(self, moves: Set[str]) -> Tuple[int, int]:
         """Plays the Tic Tac Toe, by choosing the move with the highest probability to not lose"""
         # A tuple of win probability and move
-        choices = []
+        if self.tree is not None and self.tree.get_subtrees() != []:
+            choices = [(subtree.cross_win_probability, subtree.move)
+                       for subtree in self.tree.get_subtrees()]
 
-        for move in moves:
-            subtree = self.tree.find_subtree(move)
-            choices.append((subtree.cross_win_probability, subtree.move))
-
-        move = max(choices)[1]
-
-        return letter_to_row[move[0]], int(move[1]) - 1
-
-
-class RandomBotPlayer(BotPlayer):
-    """The random bot player object"""
-
-    def __init__(self, key: str, tree_path: str) -> None:
-        super().__init__(key, tree_path)
-
-    def play(self, moves: Set[str]) -> Tuple[int, int]:
-        """Picks a random move that isn't being played before based on the tree"""
-        if self.tree is not None:
-            move = random.choice(list(moves.difference(self.tree.get_subtree_moves())))
+            move = max(choices)[1]
 
         else:
             move = random.choice(list(moves))
@@ -330,9 +358,76 @@ class RandomBotPlayer(BotPlayer):
         return letter_to_row[move[0]], int(move[1]) - 1
 
 
+class RandomBotPlayer(BotPlayer):
+    """The random bot player object"""
+
+    def __init__(self, key: str, tree_path: Union[str, Tree]) -> None:
+        super().__init__(key, tree_path)
+
+    def play(self, moves: Set[str]) -> Tuple[int, int]:
+        """Picks a random move"""
+        move = random.choice(list(moves))
+
+        return letter_to_row[move[0]], int(move[1]) - 1
+
+
+def train(reps: int) -> None:
+    """Creates the tree file using Random Bot with Random Bot"""
+    t = Tree()
+    t.load_tree(FILENAME)
+
+    for _ in range(reps):
+        p1 = RandomBotPlayer('X', t)
+        p2 = RandomBotPlayer('O', t)
+
+        b = TicTacToe(o_first=False, player1=p1, player2=p2, verbose=False)
+
+        end = False
+
+        while not end:
+            end = b.play()
+
+        b.export_results(FILENAME)
+
+        t.insert_move_sequence(b.moves, float(b.check_winner() == 'X'))
+
+    print(f'{reps} training complete')
+
+
+def test(reps: int) -> None:
+    """Tests with the current tree file, bot player v.s. random bot player
+    Note: It is using the same tree from the file for every single game simulation
+    """
+    cross_wins = 0
+    t = Tree()
+    t.load_tree(FILENAME)
+
+    for _ in range(reps):
+        p1 = BotPlayer('X', t)
+        p2 = RandomBotPlayer('O', t)
+
+        b = TicTacToe(o_first=False, player1=p1, player2=p2, verbose=False)
+
+        end = False
+
+        while not end:
+            end = b.play()
+
+        if b.check_winner() == 'X':
+            cross_wins += 1
+
+    print(f'{cross_wins} amount of wins in {reps} games! \n'
+          f'The win probability for the current tree is {round(cross_wins / reps, 2)}')
+
+
 if __name__ == '__main__':
-    p1 = HumanPlayer('O')
-    p2 = RandomBotPlayer('X', 'small_sample.csv')
-    p3 = BotPlayer('X', 'small_sample.csv')
-    p4 = RandomBotPlayer('O', 'small_sample.csv')
-    b = TicTacToe(o_first=False, player1=p4, player2=p2)
+    # p1 = HumanPlayer('O')
+    # p2 = RandomBotPlayer('X', 'small_sample.csv')
+    # p3 = BotPlayer('O', FILENAME)
+    # p4 = RandomBotPlayer('O', 'small_sample.csv')
+    # b = TicTacToe(o_first=False, player1=p3, player2=p2)
+
+    curr_tree = Tree()
+    curr_tree.load_tree(FILENAME)
+
+    test(1000)
