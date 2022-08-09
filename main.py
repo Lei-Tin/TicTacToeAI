@@ -3,7 +3,7 @@ This is the main file for the Tic Tac Toe Game
 """
 from __future__ import annotations
 import csv
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Set
 import random
 
 row_to_letter = {0: 'A', 1: 'B', 2: 'C'}
@@ -14,7 +14,8 @@ class TicTacToe:
     """
     This is the main class for our game object, the game will be ran on this object
 
-    The bot player will always have its key being 'X'
+    Player 1 is associated with 'O'
+    Player 2 is associated with 'X'
 
     Attributes:
         board - board[i][j] denotes the piece being played in the i-th row and j-th column
@@ -23,19 +24,19 @@ class TicTacToe:
     """
     board: List[List[str]]
     curr_player: str
-    p1: HumanPlayer
-    p2: BotPlayer
+    p1: Player
+    p2: Player
 
-    def __init__(self, human_first: bool) -> None:
+    def __init__(self, o_first: bool, player1: Player, player2: Player) -> None:
         self.board = [['-' for _ in range(3)] for _ in range(3)]
 
-        if human_first:
+        if o_first:
             self.curr_player = 'O'
         else:
             self.curr_player = 'X'
 
-        self.p1 = HumanPlayer('O')
-        self.p2 = BotPlayer('X', 'tree.csv')
+        self.p1 = player1
+        self.p2 = player2
 
     def check_winner(self) -> str:
         """Returns the winner of the game, if no winner exists at the moment, return 'F'
@@ -44,19 +45,21 @@ class TicTacToe:
 
         # Check diagonal - left up to bottom right
         if len(set(self.board[i][i] for i in range(len(self.board)))) == 1:
-            return self.board[0][0]
+            if self.board[0][0] != '-':
+                return self.board[0][0]
 
         # Check diagonal - bottom left to top right
         if len(set(self.board[i][len(self.board) - i - 1] for i in range(len(self.board)))) == 1:
-            return self.board[0][len(self.board) - 1]
+            if self.board[0][len(self.board) - 1] != '-':
+                return self.board[0][len(self.board) - 1]
 
         # Check cardinal directions
         for row in self.board:
-            if len(set(row)) == 1:
+            if len(set(row)) == 1 and row[0] != '-':
                 return row[0]
 
         for col in zip(*self.board):
-            if len(col) == 1:
+            if len(set(col)) == 1 and col[0] != '-':
                 return col[0]
 
         if sum([self.board[i][j] == '-' for i in range(3) for j in range(3)]) == 0:
@@ -64,19 +67,21 @@ class TicTacToe:
 
         return 'F'
 
-    def get_possible_moves(self) -> List[str]:
+    def get_possible_moves(self) -> Set[str]:
         """Returns all the possible moves currently available on the map"""
-        moves = []
+        moves = set()
 
         for r in range(len(self.board)):
             for c in range(len(self.board[0])):
                 if self.board[r][c] == '-':
-                    moves.append(row_to_letter[r] + str(c + 1))
+                    moves.add(row_to_letter[r] + str(c + 1))
 
         return moves
 
     def play(self) -> bool:
-        """Prompts the next player to play"""
+        """Prompts the next player to play
+        If it returns True, then the game ended, otherwise False
+        """
         winner = self.check_winner()
 
         if winner != 'F':
@@ -86,19 +91,33 @@ class TicTacToe:
             else:
                 print(f'The winner is {winner}!')
 
+            self.curr_player = winner
             self.export_results()
             return True
 
         if self.curr_player == 'O':
-            print(self)
             r, c = self.p1.play(self.get_possible_moves())
 
             self.board[r][c] = 'O'
 
-            self.p2.tree = self.p2.tree.find_subtree(f'{row_to_letter[r]}{c + 1}')
+            # If it is a bot player, we want to advance its game tree
+            for player in (p1, p2):
+                if isinstance(player, BotPlayer) and player.tree is not None:
+                    player.tree = player.tree.find_subtree(f'{row_to_letter[r]}{c + 1}')
 
         else:
-            self.p2.play(self.get_possible_moves())
+            r, c = self.p2.play(self.get_possible_moves())
+
+            self.board[r][c] = 'X'
+
+            for player in (p1, p2):
+                if isinstance(player, BotPlayer) and player.tree is not None:
+                    player.tree = player.tree.find_subtree(f'{row_to_letter[r]}{c + 1}')
+        print(self)
+
+        self.curr_player = 'O' if self.curr_player == 'X' else 'X'
+
+        return False
 
     def __str__(self) -> str:
         """Outputs the string representation of the board state"""
@@ -129,7 +148,7 @@ class Player:
     def __init__(self, key: str) -> None:
         self.key = key
 
-    def play(self, moves: List[str]) -> Tuple[int, int]:
+    def play(self, moves: Set[str]) -> Tuple[int, int]:
         """Return a coordinate that represents where we will place our next move in"""
         raise NotImplementedError
 
@@ -140,7 +159,7 @@ class HumanPlayer(Player):
     def __init__(self, key: str) -> None:
         super().__init__(key)
 
-    def play(self, moves: List[str]) -> Tuple[int, int]:
+    def play(self, moves: Set[str]) -> Tuple[int, int]:
         """Prompts the user player to input a coordinate in the abc123 system"""
         while True:
             loc_str = input(f'Please provide a location for your next {self.key}: ')
@@ -179,6 +198,10 @@ class Tree:
     def get_subtrees(self) -> List[Tree]:
         """Returns current subtrees"""
         return self._subtrees
+
+    def get_subtree_moves(self) -> Set[str]:
+        """Returns the str representation of moves of all the current subtrees"""
+        return {subtree.move for subtree in self._subtrees}
 
     def find_subtree(self, move: str) -> Optional[Tree]:
         """Finds the subtree by move
@@ -276,11 +299,40 @@ class BotPlayer(Player):
 
             return t
 
-    def play(self, moves: List[str]) -> Tuple[int, int]:
-        """Plays the Tic Tac Toe, by choosing a random tile by some probability or not to lose"""
-        raise NotImplementedError
+    def play(self, moves: Set[str]) -> Tuple[int, int]:
+        """Plays the Tic Tac Toe, by choosing the move with the highest probability to not lose"""
+        # A tuple of win probability and move
+        choices = []
+
+        for move in moves:
+            subtree = self.tree.find_subtree(move)
+            choices.append((subtree.cross_win_probability, subtree.move))
+
+        move = max(choices)[1]
+
+        return letter_to_row[move[0]], int(move[1]) - 1
+
+
+class RandomBotPlayer(BotPlayer):
+    """The random bot player object"""
+
+    def __init__(self, key: str, tree_path: str) -> None:
+        super().__init__(key, tree_path)
+
+    def play(self, moves: Set[str]) -> Tuple[int, int]:
+        """Picks a random move that isn't being played before based on the tree"""
+        if self.tree is not None:
+            move = random.choice(list(moves.difference(self.tree.get_subtree_moves())))
+
+        else:
+            move = random.choice(list(moves))
+
+        return letter_to_row[move[0]], int(move[1]) - 1
 
 
 if __name__ == '__main__':
-    b = TicTacToe(False)
-    a = BotPlayer('X', 'small_sample.csv', b)
+    p1 = HumanPlayer('O')
+    p2 = RandomBotPlayer('X', 'small_sample.csv')
+    p3 = BotPlayer('X', 'small_sample.csv')
+    p4 = RandomBotPlayer('O', 'small_sample.csv')
+    b = TicTacToe(o_first=False, player1=p4, player2=p2)
