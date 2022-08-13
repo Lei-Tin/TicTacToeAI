@@ -365,16 +365,53 @@ class BotPlayer(Player):
 
             move = max(choices)[1]
 
-            print(choices)
-
         else:
             move = random.choice(list(moves))
 
         return letter_to_row[move[0]], int(move[1]) - 1
 
 
+class ExplorationBotPlayer(BotPlayer):
+    """The Exploration bot player object
+
+    Attributes:
+        exploration_probability - The probability that this bot will attempt to play randomly,
+        play a move that is not included in the current tree
+    """
+    exploration_probability: float
+
+    def __init__(self, key: str, tree_path: Union[str, Tree],
+                 exploration_probability: float) -> None:
+        super().__init__(key, tree_path)
+        self.exploration_probability = exploration_probability
+
+    def play(self, moves: Set[str]) -> Tuple[int, int]:
+        """Picks a random move that is not played before with probability of self.exploration_prob
+
+        otherwise, pick the move with the highest winning probability
+        """
+        if self.tree is not None and self.tree.get_subtrees() != []:
+            if random.uniform(0, 1) <= self.exploration_probability:
+                possible_moves = moves.difference(self.tree.get_subtree_moves())
+
+                if len(possible_moves) == 0:
+                    move = random.choice(list(moves))
+
+                else:
+                    move = random.choice(list(possible_moves))
+
+            else:
+                # Otherwise, play a move using the highest winning probability
+                return super().play(moves)
+
+        else:
+            return super().play(moves)
+
+        return letter_to_row[move[0]], int(move[1]) - 1
+
+
 class RandomBotPlayer(BotPlayer):
-    """The random bot player object"""
+    """The Random bot player object"""
 
     def __init__(self, key: str, tree_path: Union[str, Tree]) -> None:
         super().__init__(key, tree_path)
@@ -391,8 +428,9 @@ def train(reps: int) -> None:
     t = Tree()
     t.load_tree(FILENAME)
 
-    for _ in range(reps):
-        p1 = RandomBotPlayer('X', t)
+    for i in range(reps):
+        # p1 = RandomBotPlayer('X', t)
+        p1 = ExplorationBotPlayer('X', t, 1 - ((2 * (i + 1)) / reps))
         p2 = RandomBotPlayer('O', t)
 
         b = TicTacToe(o_first=False, player1=p1, player2=p2, verbose=False)
@@ -455,7 +493,8 @@ def test_update(reps: int, filename: str = FILENAME) -> Tree:
     cross_wins = []
 
     for i in range(reps):
-        p1 = BotPlayer('X', t)
+        p1 = ExplorationBotPlayer('X', t, 1 - ((2 * (i + 1)) / reps))
+        # p1 = BotPlayer('X', t)
         p2 = RandomBotPlayer('O', t)
 
         b = TicTacToe(o_first=False, player1=p1, player2=p2, verbose=False)
@@ -509,4 +548,5 @@ if __name__ == '__main__':
     t = Tree()
     t.load_tree(FILENAME)
 
-    a = test_update(10000, FILENAME)
+    # a = test_update(50000, '')
+    train(10000)
