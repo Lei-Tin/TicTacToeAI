@@ -19,4 +19,4 @@ A lightweight AI written in roughly 500 lines.
 - typing
 - random
 - csv
-- __future__
+- \_\_future__

@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 from typing import List, Tuple, Optional, Set, Union
 import random
+import plotly.graph_objects as go
 
 row_to_letter = {0: 'A', 1: 'B', 2: 'C'}
 letter_to_row = {'A': 0, 'B': 1, 'C': 2}
@@ -163,6 +164,14 @@ class TicTacToe:
             contents.add(','.join(self.moves) + '\n')
             f.writelines(set(contents))
 
+    def get_moves(self) -> List[str]:
+        """Returns the current moves being played on the board
+        NOT TO BE CONFUSED WITH GET_VALID_MOVES
+
+        This function only returns the moves being played on the board at the current moment
+        """
+        return self.moves
+
 
 class Player:
     """The player object that is used to play the game in Tic Tac Toe
@@ -224,13 +233,17 @@ class Tree:
 
     def load_tree(self, tree_path: str) -> None:
         """Loads the tree from the given path"""
-        with open(tree_path) as f:
-            reader = csv.reader(f)
+        try:
+            with open(tree_path) as f:
+                reader = csv.reader(f)
 
-            for row in reader:
-                self.is_cross_move = row[0] == 'X'
-                self.cross_win_probability = 0.0 if row[-1] == 'O' else 1.0
-                self.insert_move_sequence(row, self.cross_win_probability)
+                for row in reader:
+                    self.is_cross_move = row[0] == 'X'
+                    self.cross_win_probability = 0.0 if row[-1] == 'O' else 1.0
+                    self.insert_move_sequence(row, self.cross_win_probability)
+
+        except FileNotFoundError:
+            print('File not found! Starting with an empty tree. ')
 
     def get_subtrees(self) -> List[Tree]:
         """Returns current subtrees"""
@@ -352,6 +365,8 @@ class BotPlayer(Player):
 
             move = max(choices)[1]
 
+            print(choices)
+
         else:
             move = random.choice(list(moves))
 
@@ -397,6 +412,8 @@ def train(reps: int) -> None:
 def test(reps: int) -> None:
     """Tests with the current tree file, bot player v.s. random bot player
     Note: It is using the same tree from the file for every single game simulation
+
+    We are counting wins as a tie or simply cross winning.
     """
     cross_wins = 0
     t = Tree()
@@ -413,11 +430,73 @@ def test(reps: int) -> None:
         while not end:
             end = b.play()
 
-        if b.check_winner() == 'X':
+        winner = b.check_winner()
+
+        if winner != 'O':
             cross_wins += 1
 
     print(f'{cross_wins} amount of wins in {reps} games! \n'
           f'The win probability for the current tree is {round(cross_wins / reps, 2)}')
+
+
+def test_update(reps: int, filename: str = FILENAME) -> Tree:
+    """Tests the current tree file, bot player v.s. random bot player
+
+    Note: The tree from the file will be updated at each iteration, but no output will be stored
+    Note 2: Reps must be above 50
+    Note 3: By default, uses FILENAME, which is data.csv
+    """
+    t = Tree()
+
+    t.load_tree(filename)
+
+    overall_winrate = []
+    recent_50_games_winrate = []
+    cross_wins = []
+
+    for i in range(reps):
+        p1 = BotPlayer('X', t)
+        p2 = RandomBotPlayer('O', t)
+
+        b = TicTacToe(o_first=False, player1=p1, player2=p2, verbose=False)
+
+        end = False
+
+        while not end:
+            end = b.play()
+
+        winner = b.check_winner()
+
+        if winner != 'O':
+            cross_wins.append(1)
+        else:
+            cross_wins.append(0)
+
+        overall_winrate.append(sum(cross_wins) / (i + 1))
+        recent_50_games_winrate.append(sum(cross_wins[max(0, i - 49):]) / 50)
+
+        move = b.get_moves()
+        t.insert_move_sequence(move, float(winner != 'O'))
+
+    fig = go.Figure(layout_yaxis_range=[0, 1])
+
+    x = [i for i in range(reps)]
+
+    fig.add_trace(go.Scatter(
+        x=x,
+        y=overall_winrate,
+        name='Overall win rate'
+    ))
+
+    fig.add_trace(go.Scatter(
+        x=x,
+        y=recent_50_games_winrate,
+        name='Latest 50 games win rate'
+    ))
+
+    fig.show()
+
+    return t
 
 
 if __name__ == '__main__':
@@ -427,7 +506,7 @@ if __name__ == '__main__':
     # p4 = RandomBotPlayer('O', 'small_sample.csv')
     # b = TicTacToe(o_first=False, player1=p3, player2=p2)
 
-    curr_tree = Tree()
-    curr_tree.load_tree(FILENAME)
+    t = Tree()
+    t.load_tree(FILENAME)
 
-    test(1000)
+    a = test_update(10000, FILENAME)
