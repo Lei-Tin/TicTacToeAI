@@ -107,6 +107,9 @@ class TicTacToe:
 
             return True
 
+        if self.verbose:
+            print(self)
+
         if self.curr_player == 'O':
             r, c = self.p1.play(self.get_possible_moves())
 
@@ -125,9 +128,6 @@ class TicTacToe:
             for player in (self.p1, self.p2):
                 if isinstance(player, BotPlayer) and player.tree is not None:
                     player.tree = player.tree.find_subtree(f'{row_to_letter[r]}{c + 1}')
-
-        if self.verbose:
-            print(self)
 
         # Add it to the moves being played in this game
         self.moves.append(row_to_letter[r] + str(c + 1))
@@ -213,7 +213,7 @@ class HumanPlayer(Player):
 
                 return row, col
 
-            except ValueError:
+            except (ValueError, KeyError, IndexError) as error:
                 print('Invalid Format! Please enter the coordinate using "<row><col>", e.g. A1')
                 continue
 
@@ -538,6 +538,21 @@ def test_update(reps: int, filename: str = FILENAME) -> Tree:
     return t
 
 
+def play() -> None:
+    """Plays the game with a Human Player and a bot with FILENAME"""
+    p1 = HumanPlayer('O')
+    p2 = BotPlayer('X', FILENAME)
+
+    b = TicTacToe(o_first=False, player1=p1, player2=p2, verbose=True)
+
+    end = False
+
+    while not end:
+        end = b.play()
+
+    b.export_results(FILENAME)
+
+
 if __name__ == '__main__':
     # p1 = HumanPlayer('O')
     # p2 = RandomBotPlayer('X', 'small_sample.csv')
@@ -549,4 +564,6 @@ if __name__ == '__main__':
     t.load_tree(FILENAME)
 
     # a = test_update(50000, '')
-    train(10000)
+    # train(10000)
+
+    play()
